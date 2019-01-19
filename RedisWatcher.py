@@ -87,7 +87,7 @@ def main():
     password = config.get('redisInfo', 'UserPwd')
     channel = config.get('redisInfo', 'Channel')
     data_path = config.get('redisInfo', 'BaseFilePath')
-    log_path = config.get('DataWatcher', 'LogPath')
+    log_path = config.get('dataWatcher', 'LogPath')
     if port:
         watcher = RedisWatcher(host=host, port=port, password=password, channel=channel,
                                data_path=data_path, log_path=log_path)

@@ -56,7 +56,7 @@ def load_my_logging_cfg(App, log_path):
     if not os.path.isdir(log_path):
         os.makedirs(log_path)
     # 将日志文件替换为模块本身的日志路径
-    LOGGING_DIC['handlers']['default'].update({'filename': '%s%s.log' % (log_path, App.__name__)})
+    LOGGING_DIC['handlers']['default'].update({'filename': os.path.join(os.path.abspath(log_path),'%s.log' % App.__name__)})
     logging.config.dictConfig(LOGGING_DIC)
     return logging
 
