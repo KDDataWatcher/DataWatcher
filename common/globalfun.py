@@ -34,9 +34,6 @@ def save_json(data_dict, data_path):
         else:
             with open(index_path, 'r', encoding='utf-8')as f:
                 index = f.read()
-    if os.path.isfile(index_path):
-        with open(index_path, 'r', encoding='utf-8')as f:
-            index = f.read()
 
     write_data_path = os.path.abspath('%s.%s' % (data_path, index))
     if os.path.exists(os.path.abspath(write_data_path)):
