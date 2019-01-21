@@ -1,4 +1,4 @@
-# !/usr/bin/env python
+# !/usr/bin/env python3
 # -*- coding:utf-8 -*-
 
 """
@@ -14,28 +14,32 @@ import pyinotify
 from common.setting import *
 from common.globalfun import save_json
 
+
 sys.path.append("/opt/luban/luban_c_python3/lib/python3.5/site-packages")
 from kazoo.client import KazooClient
 from kazoo.client import DataWatch
 
-deploy_service_cfg = "/opt/config/luban_config/deploy.ini"
-deploy_path_cfg = "/opt/config/luban_config/deploy.json"
-
-log_path = "/opt/log/guard/zk_watcher.log"
-datefmt = '%Y/%m/%d:%H:%M:%S'
 
 # list of apps that needn't to cheek
 exclude_business = ["java"]
 # special apps list
 special_business = ["syslog-ng", "radar-server", "dms", "glusterfsd", "glusterfs", "zookeeper"]
 
-# 创建logger记录脚本自身运行过程
-logging.basicConfig(level=logging.ERROR,
-                    format='%(asctime)s %(filename)s[line:%(lineno)d] %(message)s',
-                    datefmt=datefmt,
-                    filename=log_path,
-                    filemode='a+')
-logger = logging.getLogger()
+
+class ZkWatcherLogger:
+    __slots__ = ['__name__']
+
+    def __init__(self):
+        self.__name__ = "ZooKeeperWatcher"
+
+    @classmethod
+    def get_logger(cls, path):
+        return load_my_logging_cfg(cls, path)
+
+
+# creat logger recording the running process
+log_path = config.get("dataWatcher", "LogPath")
+logger = ZkWatcherLogger.get_logger(log_path)
 
 
 def get_config():
@@ -45,19 +49,19 @@ def get_config():
     """
     zk_ip = config.get("zookeeperInfo", "IpAddr")
     zk_port = config.get("zookeeperInfo", "Port")
-    des_path = config.get("zookeeperInfo", "BaseFilePath")
+    data_path = config.get("zookeeperInfo", "BaseFilePath")
     json_path = config.get("zookeeperInfo", "json_path")
 
     try:
         assert zk_ip, 'zookeeper service ip addr is unset'
-        assert des_path, 'log_path is unset'
+        assert data_path, 'log_path is unset'
         assert json_path, 'json_path is unset'
     except AssertionError as err:
         logger.error(err)
         return None
 
     zk_ip_port = zk_ip + ':2181' if not zk_port else zk_ip + ':' + zk_port
-    return zk_ip_port, des_path, json_path
+    return zk_ip_port, data_path, json_path
 
 
 class AssembleZKInfo:
