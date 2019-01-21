@@ -9,7 +9,6 @@
 import sys
 import json
 import re
-import datetime
 import logging
 import pyinotify
 from common.setting import *

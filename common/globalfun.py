@@ -8,12 +8,12 @@ from common.setting import *
 
 
 def save_json(data_dict, data_path):
-    '''
+    """
     将订阅获取到的数据，转为json后写入文件
     :param data_dict: 要转换为json格式的数据字典
     :param data_path: json串写入的文件路径 如：/opt/data/region/platformData/redisWatcher/redis.data
     :return: 写入的结果，exception内容
-    '''
+    """
     index = '0'
     index_path = '%s.index' % data_path
     try:
