@@ -32,9 +32,9 @@ class ZkWatcherLogger:
     def __init__(self):
         self.__name__ = "ZooKeeperWatcher"
 
-    @classmethod
-    def get_logger(cls, path):
-        return load_my_logging_cfg(cls, path)
+    @staticmethod
+    def get_logger(path):
+        return load_my_logging_cfg(ZkWatcherLogger(), path).getLogger()
 
 
 # creat logger recording the running process
@@ -65,6 +65,7 @@ def get_config():
 
 
 class AssembleZKInfo:
+    # 待重做
     """
     read all installed businesses from deploy.ini and read all business information from deploy.json,
     then assemble zookeeper path for all businesses
