@@ -242,7 +242,7 @@ if __name__ == '__main__':
     while True:
         # 连上upu后调用订阅函数
         if upuwatcher.connectflag:
-            upuwatcher.subscribe_topic(1,10000001)
+            upuwatcher.subscribe_topic(1,10000001)...
             upuwatcher.subscribe_topic(2,10000002)
             break
         else:
