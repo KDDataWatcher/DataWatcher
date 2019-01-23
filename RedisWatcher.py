@@ -51,14 +51,14 @@ class RedisWatcher(object):
         conn = redis.Redis(connection_pool=pool)
         pub = conn.pubsub()
         # pub.subscribe(self._channel)
-        pub.subscribe(*self._channel.replace(' ','').split(','))
+        pub.subscribe(*self._channel.replace(' ', '').split(','))
         return pub
 
     def get_message(self, pub):
         '''
         等待订阅的channel推送消息，并将消息写入文件
         :param pub: 订阅channel后的pubsub对象
-        :return:
+        :return: None
         '''
         if hasattr(pub, 'listen'):
             for message in pub.listen():
@@ -80,6 +80,10 @@ class RedisWatcher(object):
 
 
 def main():
+    '''
+    主函数，实例化Watcher，创建redis连接池，订阅channel，获取发布消息，写入文件
+    :return: None
+    '''
     pool = None
 
     host = config.get('redisInfo', 'IpAddr')
@@ -87,7 +91,7 @@ def main():
     password = config.get('redisInfo', 'UserPwd')
     channel = config.get('redisInfo', 'Channel')
     data_path = config.get('redisInfo', 'BaseFilePath')
-    log_path = config.get('DataWatcher', 'LogPath')
+    log_path = config.get('dataWatcher', 'LogPath')
     if port:
         watcher = RedisWatcher(host=host, port=port, password=password, channel=channel,
                                data_path=data_path, log_path=log_path)
@@ -95,13 +99,12 @@ def main():
         watcher = RedisWatcher(host=host, password=password, channel=channel,
                                data_path=data_path, log_path=log_path)
     logger = watcher.logger
-    if watcher:
 
-        try:
-            pool = watcher.redis_pool()
-        except Exception as e:
-            logger.error(e)
-            exit(1)
+    try:
+        pool = watcher.redis_pool()
+    except Exception as e:
+        logger.error(e)
+        exit(1)
     while True:
         try:
             logger.info('connecting to %s...' % host)
@@ -110,25 +113,24 @@ def main():
                 logger.info('connected to %s' % host)
                 watcher.get_message(pub)
 
-
         except TimeoutError as e:
-            logger.error(e)
+            logger.error('connect timeout: %s' % e)
         except ConnectionError as e:
-            logger.error(e)
+            logger.error('connect error: %s' % e)
         except ResponseError as e:
             if 'invalid password' in e:
-                logger.error('password error...')
+                logger.error('password error,please check your config file...')
                 exit(2)
             else:
-                logger.error(e)
-        # except Exception as e:
-        #     logger.error(e)
+                logger.error('response error: %s' % e)
+        except Exception as e:
+            logger.error('exception error: %s' % e)
 
         finally:
+            logger.error('Connection closed by foreign host,waiting for reconnect...')
             time.sleep(5)
             logger.error('Try to reconnect...')
 
 
 if __name__ == '__main__':
     main()
-
