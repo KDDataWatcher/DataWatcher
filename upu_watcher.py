@@ -16,7 +16,7 @@ import re
 import queue
 import os
 from common.setting import *
-from common.globalfun import *
+from common.globalfun import save_json
 
 
 @unique
