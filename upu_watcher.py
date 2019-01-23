@@ -18,13 +18,6 @@ import os
 from common.setting import *
 from common.globalfun import *
 
-class MyConfig(configparser.ConfigParser):
-    '''
-    继承ConfigParser，修改返回配置都为小写的问题
-    '''
-
-    def optionxform(self, optionstr):
-        return optionstr
 
 @unique
 class MacroDefinition(Enum):
