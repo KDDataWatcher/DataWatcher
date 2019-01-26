@@ -9,23 +9,22 @@
 import sys
 import json
 import re
-import logging
+import time
 import pyinotify
 from common.setting import *
 from common.globalfun import save_json
-
 
 sys.path.append("/opt/luban/luban_c_python3/lib/python3.5/site-packages")
 from kazoo.client import KazooClient
 from kazoo.client import DataWatch
 
 
-# list of apps that needn't to cheek
-exclude_business = ["java"]
-# special apps list
-special_business = ["syslog-ng", "radar-server", "dms", "glusterfsd", "glusterfs", "zookeeper"]
+exclude_business = ["java"]  # list of apps that needn't to cheek
+special_business = ["syslog-ng", "radar-server", "dms", "glusterfsd", "glusterfs", "zookeeper"]  # special apps list
+cmp_pattern = re.compile("status = (\w+)")
 
 
+# logger class
 class ZkWatcherLogger:
     __slots__ = ['__name__']
 
@@ -64,8 +63,41 @@ def get_config():
     return zk_ip_port, data_path, json_path
 
 
+def write_data(data, ctime, path):
+    """
+    write data to file throw the function save_json from source file common.globalfun
+    :param data: ZNode data
+    :param ctime: timestamp of the ZNode changing
+    :type ctime: int
+    :param path: path of ZNode
+    :return:
+    """
+    timestamp = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(ctime/1000))
+    path_spt = path.split("/")
+    if len(path_spt) == 7:
+        typ = "app"
+        name = path_spt[5].split('_')[0]
+        moid = path_spt[5].split('_')[1]
+    elif len(path_spt) == 5:
+        typ = "machine_room"
+        name = "默认机房"
+        moid = path_spt[3]
+    else:
+        # 路径错误
+        return None
+
+    status = re.findall(cmp_pattern, data.decode('utf-8'))
+    if status[0] == 'started':
+        status = "online"
+    else:
+        status = "offline"
+
+    return dict(zip(['@timestamp', 'name', 'moid', 'type', 'status'], [timestamp, name, moid, typ, status]))
+    # save_json()   # 调接口写文件
+
+
 class AssembleZKInfo:
-    # 待重做
+    # 待重做，json格式最终由吴凯提供
     """
     read all installed businesses from deploy.ini and read all business information from deploy.json,
     then assemble zookeeper path for all businesses
@@ -159,6 +191,9 @@ class AssembleZKInfo:
 
 
 class FileWatcherHandler(pyinotify.ProcessEvent):
+    """
+    handing config_json changes
+    """
     def my_init(self):
         self.stat = None
 
@@ -183,27 +218,51 @@ class FileWatcherHandler(pyinotify.ProcessEvent):
 
 
 class ZooKeeperWatcher:
+    """
+    set ZNode watcher ang handing data changes
+    """
     def __init__(self, host_port, timeout=10):
         self._host_port = host_port
         self._timeout = timeout
-        self._zk = KazooClient(hosts=self._host_port, timeout=self._timeout)
+        self._zk = KazooClient(hosts=self._host_port, timeout=self._timeout,
+                               connection_retry={'max_tries': -1, 'delay': 1, 'backoff': 1})
         self._zk.add_listener(self.connection_listener)
         self.run_code = 0
 
     def start(self, zk_path):
         try:
             assert isinstance(zk_path, dict), "parameters must be dict"
-            self._zk.start()
         except AssertionError as err:
             print(err)
-        except Exception as err:
-            print(err)
+            raise TypeError(err)
+
+        while True:
+            try:
+                self._zk.start()
+            except Exception as err:
+                print(err)
+                time.sleep(2)
+            else:
+                break
+
         self._watcher(zk_path)
         self.run_code = 1
 
     def _watcher(self, zk_path):
         for value in zk_path.values():
-            DataWatch(client=self._zk, path=value, func=self.handler)
+            @self._zk.DataWatch(value)
+            def my_dw(data, stat, event):
+                if event is None:
+                    if data is None:
+                        print("首次监听，节点未创建")
+                        # 特殊处理
+                        # self.handler(data, stat.mtime, value)
+                    else:
+                        print("首次监听，节点已创建")
+                        self.handler(data, stat.mtime, value)
+                else:
+                    self.handler(data, stat.mtime, event.path)
+            # DataWatch(client=self._zk, path=value, func=self.handler)
 
     def stop(self):
         self._zk.stop()
@@ -213,7 +272,7 @@ class ZooKeeperWatcher:
     @staticmethod
     def connection_listener(state):
         """
-        监控zk状态
+        监控zk连接状态
         :param state:
         :return:
         """
@@ -230,24 +289,19 @@ class ZooKeeperWatcher:
             print("other")
 
     @staticmethod
-    def handler(data, stat, event):
+    def handler(data, modify_time, zk_path):
         """
         处理节点的数据变化
-        :param event:
+        :param modify_time:
+        :param zk_path:
         :param data:
-        :param stat:
         :return:
         """
         print("数据发生变化")
-        if event is None and data is None:
-            print("首次监听，节点未创建")
-            print("数据为:", data)
-            print("状态为:", stat)
-            print("事件为:", event)
-        else:
-            print("数据为:", data)
-            print("状态为:", stat)
-            print("事件为:", event)
+        print("数据变更:", data)
+        print("变更时间:", modify_time)
+        print("数据路径:", zk_path)
+        # write_data(data, modify_time, zk_path)  # 暂时不打开
 
 
 def file_monitor(path):
