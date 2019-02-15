@@ -169,8 +169,6 @@ def main():
                 exit(2)
             else:
                 logger.error('Response error: %s' % e)
-        except KeyboardInterrupt as e:
-            logger.error('KeyboardInterrupt error: %s' % e)
         except Exception as e:
             logger.error('Exception error: %s' % e)
 
