@@ -72,6 +72,8 @@ class RedisWatcher(object):
                         flag, msg = save_json(data_dict, self._data_path)
                         if not flag:
                             self._logger.error('write file error: %s' % msg)
+                        elif msg:
+                            self._logger.info('%s' % msg)
                     except JSONDecodeError as e:
                         self._logger.error('json data error:%s, data: %s' % (e, data))
 
@@ -128,8 +130,8 @@ def main():
 
         finally:
             logger.error('Connection closed by foreign host,waiting for reconnect...')
-            time.sleep(5)
-            logger.error('Try to reconnect...')
+            time.sleep(1)
+            logger.error('Please try to reconnect...')
 
 
 if __name__ == '__main__':
