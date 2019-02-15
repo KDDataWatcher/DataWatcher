@@ -75,11 +75,6 @@ class RedisWatcher(object):
         '''
         if hasattr(pub, 'listen'):
             for message in pub.listen():
-                if len(threading.enumerate()) == 1:
-                    # 当IO操作线程退出后，重新创建并开启IO操作线程
-                    self._save_thread = threading.Thread(target=self.save_message, name='SaveMessageThread')
-                    self._save_thread.start()
-
                 if isinstance(message['data'], (bytes, str,)):
                     data = message['data'].decode('utf-8')
                     data = eval("'%s'" % data)
@@ -89,14 +84,21 @@ class RedisWatcher(object):
                         data_dict.update({'@timestamp': time_now})
                         # 将订阅到的消息内容存入数据队列，待IO操作线程取出后写入文件
                         self._data_queue.append(data_dict)
+                        thread_name_list = []
+                        for thread in threading.enumerate():
+                            thread_name_list.append(thread.name)
+                        if 'SaveMessageThread' not in thread_name_list:
+                            # 当IO操作线程退出后，重新创建并开启IO操作线程
+                            self._save_thread = threading.Thread(target=self.save_message, name='SaveMessageThread')
+                            self._save_thread.start()
 
                     except JSONDecodeError as e:
-                        self._logger.error('json data error:%s, data: %s' % (e, data))
+                        self._logger.error('Json data error:%s, data: %s' % (e, data))
                     except Exception as e:
                         self._logger.error(e)
 
         else:
-            self._logger.error('pub error...')
+            self._logger.error('Pub error...')
 
     def save_message(self):
         '''
@@ -110,7 +112,7 @@ class RedisWatcher(object):
                 if isinstance(data_dict, dict):
                     flag, msg = save_json(data_dict, self._data_path)
                     if not flag:
-                        self._logger.error('write file error: %s' % msg)
+                        self._logger.error('Write file error: %s' % msg)
                     elif msg:
                         self._logger.info('%s' % msg)
             except IndexError as e:
@@ -151,24 +153,26 @@ def main():
 
     while True:
         try:
-            logger.info('connecting to %s...' % host)
+            logger.info('Connecting to %s...' % host)
             if pool:
                 pub = watcher.redis_subscribe(pool)
-                logger.info('connected to %s' % host)
+                logger.info('Connected to %s' % host)
                 watcher.get_message(pub)
 
         except TimeoutError as e:
-            logger.error('connect timeout: %s' % e)
+            logger.error('Connect timeout: %s' % e)
         except ConnectionError as e:
-            logger.error('connect error: %s' % e)
+            logger.error('Connect error: %s' % e)
         except ResponseError as e:
             if 'invalid password' in e:
-                logger.error('password error,please check your config file...')
+                logger.error('Password error,please check your config file...')
                 exit(2)
             else:
-                logger.error('response error: %s' % e)
+                logger.error('Response error: %s' % e)
+        except KeyboardInterrupt as e:
+            logger.error('KeyboardInterrupt error: %s' % e)
         except Exception as e:
-            logger.error('exception error: %s' % e)
+            logger.error('Exception error: %s' % e)
 
         finally:
             logger.error('Connection closed by foreign host,waiting for reconnect...')
