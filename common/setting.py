@@ -23,7 +23,7 @@ def load_my_logging_cfg(App, log_path):
     :return: logging
     """
     # 日志格式
-    standard_format = '[%(asctime)s][%(levelname)s][%(filename)s:%(lineno)d][%(threadName)s:%(thread)d][%(message)s]'
+    standard_format = '[%(asctime)s][%(levelname)s][%(filename)s:%(lineno)d][%(threadName)s][%(message)s]'
 
     LOGGING_DIC = {
         'version': 1,

@@ -7,6 +7,8 @@ import time
 import datetime
 import json
 from redis.exceptions import TimeoutError, ConnectionError, ResponseError
+from collections import deque
+import threading
 from json.decoder import JSONDecodeError
 from common.setting import *
 from common.globalfun import save_json
@@ -14,6 +16,15 @@ from common.globalfun import save_json
 
 class RedisWatcher(object):
     def __init__(self, host='localhost', port=6379, password=None, channel=None, data_path=None, log_path=None):
+        '''
+
+        :param host: 服务器地址
+        :param port: 服务器端口
+        :param password: 服务器密码
+        :param channel: 订阅消息通道名称
+        :param data_path: 存储数据文件路径
+        :param log_path: 存储程序日志路径
+        '''
         self._host = host
         self._port = port
         self._password = password
@@ -22,6 +33,8 @@ class RedisWatcher(object):
         self._log_path = log_path
         self.__name__ = 'RedisWatcher'
         self._logger = None
+        # 存储数据的队列
+        self._data_queue = deque()
 
     @property
     def logger(self):
@@ -62,6 +75,11 @@ class RedisWatcher(object):
         '''
         if hasattr(pub, 'listen'):
             for message in pub.listen():
+                if len(threading.enumerate()) == 1:
+                    # 当IO操作线程退出后，重新创建并开启IO操作线程
+                    self._save_thread = threading.Thread(target=self.save_message, name='SaveMessageThread')
+                    self._save_thread.start()
+
                 if isinstance(message['data'], (bytes, str,)):
                     data = message['data'].decode('utf-8')
                     data = eval("'%s'" % data)
@@ -69,16 +87,39 @@ class RedisWatcher(object):
                         data_dict = json.loads(data)
                         time_now = datetime.datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%fZ')
                         data_dict.update({'@timestamp': time_now})
-                        flag, msg = save_json(data_dict, self._data_path)
-                        if not flag:
-                            self._logger.error('write file error: %s' % msg)
-                        elif msg:
-                            self._logger.info('%s' % msg)
+                        # 将订阅到的消息内容存入数据队列，待IO操作线程取出后写入文件
+                        self._data_queue.append(data_dict)
+
                     except JSONDecodeError as e:
                         self._logger.error('json data error:%s, data: %s' % (e, data))
+                    except Exception as e:
+                        self._logger.error(e)
 
         else:
             self._logger.error('pub error...')
+
+    def save_message(self):
+        '''
+        保存队列中的数据至文件
+        :return: None
+        '''
+        while True:
+            try:
+                # self._logger.debug('队列长度：%s, 线程数量：%s' % (len(self._data_queue), threading.enumerate()))
+                data_dict = self._data_queue.popleft()
+                if isinstance(data_dict, dict):
+                    flag, msg = save_json(data_dict, self._data_path)
+                    if not flag:
+                        self._logger.error('write file error: %s' % msg)
+                    elif msg:
+                        self._logger.info('%s' % msg)
+            except IndexError as e:
+                # 队列取空之后，结束当前线程
+                # self._logger.error(e)
+                return
+            except Exception as e:
+                self._logger.error(e)
+                return
 
 
 def main():
@@ -107,6 +148,7 @@ def main():
     except Exception as e:
         logger.error(e)
         exit(1)
+
     while True:
         try:
             logger.info('connecting to %s...' % host)
