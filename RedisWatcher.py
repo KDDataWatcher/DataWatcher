@@ -89,8 +89,8 @@ class RedisWatcher(object):
                             thread_name_list.append(thread.name)
                         if 'SaveMessageThread' not in thread_name_list:
                             # 当IO操作线程退出后，重新创建并开启IO操作线程
-                            self._save_thread = threading.Thread(target=self.save_message, name='SaveMessageThread')
-                            self._save_thread.start()
+                            save_thread = threading.Thread(target=self.save_message, name='SaveMessageThread')
+                            save_thread.start()
 
                     except JSONDecodeError as e:
                         self._logger.error('Json data error:%s, data: %s' % (e, data))
