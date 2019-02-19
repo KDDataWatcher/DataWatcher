@@ -6,10 +6,11 @@ import redis
 import time
 import datetime
 import json
-from redis.exceptions import TimeoutError, ConnectionError, ResponseError
 from collections import deque
 import threading
+from redis.exceptions import TimeoutError, ConnectionError, ResponseError
 from json.decoder import JSONDecodeError
+
 from common.setting import *
 from common.globalfun import save_json
 
@@ -137,11 +138,9 @@ def main():
     channel = config.get('redisInfo', 'Channel')
     data_path = config.get('redisInfo', 'BaseFilePath')
     log_path = config.get('dataWatcher', 'LogPath')
-    if port:
-        watcher = RedisWatcher(host=host, port=port, password=password, channel=channel,
-                               data_path=data_path, log_path=log_path)
-    else:
-        watcher = RedisWatcher(host=host, password=password, channel=channel,
+    if not port:
+        port = 6379
+    watcher = RedisWatcher(host=host, port=port, password=password, channel=channel,
                                data_path=data_path, log_path=log_path)
     logger = watcher.logger
 
@@ -153,10 +152,10 @@ def main():
 
     while True:
         try:
-            logger.info('Connecting to %s...' % host)
+            logger.info('Connecting to %s:%s...' % (host, port))
             if pool:
                 pub = watcher.redis_subscribe(pool)
-                logger.info('Connected to %s' % host)
+                logger.info('Connected to %s:%s' % (host, port))
                 watcher.get_message(pub)
 
         except TimeoutError as e:
@@ -164,8 +163,8 @@ def main():
         except ConnectionError as e:
             logger.error('Connect error: %s' % e)
         except ResponseError as e:
-            if 'invalid password' in e:
-                logger.error('Password error,please check your config file...')
+            if 'invalid password' in str(e):
+                logger.error('Password error,please check your config file,exit 2...')
                 exit(2)
             else:
                 logger.error('Response error: %s' % e)
