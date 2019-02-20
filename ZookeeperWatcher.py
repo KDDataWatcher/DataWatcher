@@ -6,12 +6,14 @@
 @time: 2019-1-18
 """
 
+import os
+import re
 import sys
 import json
-import re
 import time
+import logging
 import pyinotify
-from common.setting import *
+from common.setting import config, load_my_logging_cfg
 from common.globalfun import save_json
 
 sys.path.append("/opt/luban/luban_c_python3/lib/python3.5/site-packages")
@@ -37,8 +39,15 @@ class ZkWatcherLogger:
 
 
 # creat logger recording the running process
-log_path = config.get("dataWatcher", "LogPath")
-logger = ZkWatcherLogger.get_logger(log_path)
+try:
+    log_path = config.get("dataWatcher", "LogPath")
+except Exception:
+    # 获取不到日志配置就不记录日志
+    logging.basicConfig(level=logging.FATAL)
+    logger = logging.getLogger("ZooKeeperWatcher")
+else:
+    logger = ZkWatcherLogger.get_logger(log_path)
+    logger.setLevel(level=logging.INFO)
 
 
 def get_config():
@@ -46,54 +55,24 @@ def get_config():
     get options from configuration file, default /conf/DataWatcher.ini
     :return: zookeeper_ip_port/data_path/config.json_path
     """
-    zk_ip = config.get("zookeeperInfo", "IpAddr")
-    zk_port = config.get("zookeeperInfo", "Port")
-    data_path = config.get("zookeeperInfo", "BaseFilePath")
-    json_path = config.get("zookeeperInfo", "json_path")
-
     try:
+        zk_ip = config.get("zookeeperInfo", "IpAddr")
+        zk_port = config.get("zookeeperInfo", "Port")
+        data_path = config.get("zookeeperInfo", "BaseFilePath")
+        json_path = config.get("zookeeperInfo", "json_path")
+
         assert zk_ip, 'zookeeper service ip addr is unset'
         assert data_path, 'log_path is unset'
         assert json_path, 'json_path is unset'
     except AssertionError as err:
         logger.error(err)
         return None
+    except Exception as err:
+        logger.error(err)
+        return None
 
     zk_ip_port = zk_ip + ':2181' if not zk_port else zk_ip + ':' + zk_port
     return zk_ip_port, data_path, json_path
-
-
-def write_data(data, ctime, path):
-    """
-    write data to file throw the function save_json from source file common.globalfun
-    :param data: ZNode data
-    :param ctime: timestamp of the ZNode changing
-    :type ctime: int
-    :param path: path of ZNode
-    :return:
-    """
-    timestamp = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(ctime/1000))
-    path_spt = path.split("/")
-    if len(path_spt) == 7:
-        typ = "app"
-        name = path_spt[5].split('_')[0]
-        moid = path_spt[5].split('_')[1]
-    elif len(path_spt) == 5:
-        typ = "machine_room"
-        name = "默认机房"
-        moid = path_spt[3]
-    else:
-        # 路径错误
-        return None
-
-    status = re.findall(cmp_pattern, data.decode('utf-8'))
-    if status[0] == 'started':
-        status = "online"
-    else:
-        status = "offline"
-
-    return dict(zip(['@timestamp', 'name', 'moid', 'type', 'status'], [timestamp, name, moid, typ, status]))
-    # save_json()   # 调接口写文件
 
 
 class AssembleZKInfo:
@@ -102,9 +81,8 @@ class AssembleZKInfo:
     read all installed businesses from deploy.ini and read all business information from deploy.json,
     then assemble zookeeper path for all businesses
     """
-    def __init__(self, cfg_json_path, cfg_ini_path):
+    def __init__(self, cfg_json_path):
         self._json_path = cfg_json_path
-        self._ini_path = cfg_ini_path
         self.apps_zk_path = {}
 
     def _get_json_info(self):
@@ -124,26 +102,6 @@ class AssembleZKInfo:
         else:
             return content['DeployInfo']
 
-    def _get_ini_info(self):
-        """
-        read all installed apps from deploy.ini
-        :return:list of apps
-        """
-        try:
-            with open(self._ini_path) as f:
-                content = f.read()
-        except FileNotFoundError as err:
-            logger.error(err)
-            return -1
-        except Exception as err:
-            logger.error(err)
-            return -1
-        else:
-            apps_tmp = re.findall("server_list = (\S+)", content)
-            apps_tmp = ",".join(apps_tmp)
-            apps = apps_tmp.split(",")
-            return apps
-
     def _make_zk_path(self):
         """
         assemble zookeeper path
@@ -154,16 +112,16 @@ class AssembleZKInfo:
             group_moid = app_info.get("Group_moid")
             key = app_info.get("Key")
             moid = app_info.get("MOID")
-            if key not in self.installed_apps:
-                continue
+
+            # 机房信息处理待更新
 
             if all([domain_moid, machineRoom_moid, group_moid, key, moid]):
                 key_moid = key + "_" + moid
-                zk_path = "/".join(["service", domain_moid, machineRoom_moid, group_moid, key_moid])
-                self.apps_zk_path.setdefault(key, default=zk_path)
+                zk_path = "/".join(["/service", domain_moid, machineRoom_moid, group_moid, key_moid, "status"])
+                self.apps_zk_path.setdefault(key, zk_path)
             else:
-                logger.error("{} information value error: {}:{}:{}:{}:{}".format(key, domain_moid, machineRoom_moid,
-                                                                                 group_moid, key, moid))
+                logger.warning("make zk_path error: {}:{}:{}:{}:{}".format(key, domain_moid, machineRoom_moid,
+                                                                           group_moid, key, moid))
 
     def _get_zk_info(self):
         """
@@ -172,17 +130,16 @@ class AssembleZKInfo:
         """
         try:
             assert isinstance(self._json_path, str), "parameters must be string"
-            assert isinstance(self._ini_path, str), "parameters must be string"
         except AssertionError as err:
             logger.error(err)
             return None
 
-        self.installed_apps = self._get_ini_info()
         self.apps_information = self._get_json_info()
-        if self.installed_apps == -1 or self.apps_information == -1:
+        if self.apps_information == -1:
             return None
         self._make_zk_path()
         if len(self.apps_zk_path) == 0:
+            logger.warning("make zk_path abnormal, please check config_json file!")
             return None
         return self.apps_zk_path
 
@@ -198,16 +155,15 @@ class FileWatcherHandler(pyinotify.ProcessEvent):
         self.stat = None
 
     def process_IN_MODIFY(self, event):
-        print(event, self.stat)
         # 处理修改一次文件触发多次报警
         if os.stat(event.pathname)[8] != self.stat:
+            logger.info("json_file changed, Action: modify, file: %s " % event.pathname)
             self.stat = os.stat(event.pathname)[8]
-            print('Action', "modify file: %s " % event.pathname)
             main()
 
     def process_IN_MOVED_TO(self, event):
-        print(event, self.stat)
-        print('Action', "move_to file: %s " % event.pathname)
+        logger.info("json_file changed, Action: move_to, file: %s " % event.pathname)
+        self.stat = os.stat(event.pathname)[8]
         main()
 
     def process_IN_CREATE(self, event):
@@ -221,47 +177,50 @@ class ZooKeeperWatcher:
     """
     set ZNode watcher ang handing data changes
     """
-    def __init__(self, host_port, timeout=10):
+    def __init__(self, host_port, data_path, timeout=10):
         self._host_port = host_port
         self._timeout = timeout
         self._zk = KazooClient(hosts=self._host_port, timeout=self._timeout,
                                connection_retry={'max_tries': -1, 'delay': 1, 'backoff': 1})
         self._zk.add_listener(self.connection_listener)
         self.run_code = 0
+        self._data_path = data_path
 
-    def start(self, zk_path):
+    def start(self, zk_paths):
         try:
-            assert isinstance(zk_path, dict), "parameters must be dict"
+            assert isinstance(zk_paths, dict), "parameters must be dict"
         except AssertionError as err:
-            print(err)
             raise TypeError(err)
 
         while True:
             try:
                 self._zk.start()
             except Exception as err:
-                print(err)
+                logger.error("connect zookeeper server error: %s" % err)
                 time.sleep(2)
             else:
+                self.run_code = 1
                 break
+        self._watcher(zk_paths)
 
-        self._watcher(zk_path)
-        self.run_code = 1
-
-    def _watcher(self, zk_path):
-        for value in zk_path.values():
-            @self._zk.DataWatch(value)
+    def _watcher(self, zk_paths):
+        for zk_path in zk_paths.values():
+            @self._zk.DataWatch(zk_path)
             def my_dw(data, stat, event):
                 if event is None:
                     if data is None:
-                        print("首次监听，节点未创建")
-                        # 特殊处理
-                        # self.handler(data, stat.mtime, value)
+                        # 首次监听,节点未创建
+                        logging.warning("Adding watcher, but ZNode isn't exits: %s" % zk_path)
                     else:
-                        print("首次监听，节点已创建")
-                        self.handler(data, stat.mtime, value)
+                        # 首次监听,节点已创建
+                        self._handler(data, stat.mtime, zk_path)
                 else:
-                    self.handler(data, stat.mtime, event.path)
+                    if data is None:
+                        # 删除节点
+                        self._handler(b"", int(time.time()*1000), event.path)
+                    else:
+                        # 正常情况
+                        self._handler(data, stat.mtime, event.path)
             # DataWatch(client=self._zk, path=value, func=self.handler)
 
     def stop(self):
@@ -269,39 +228,56 @@ class ZooKeeperWatcher:
         self._zk.close()
         self.run_code = 0
 
+    def _handler(self, data, ctime, path):
+        """
+        handing ZNode data changes
+        :param data: ZNode data
+        :param ctime: timestamp of the ZNode changing
+        :type ctime: int
+        :param path: path of ZNode
+        :return:
+        """
+        timestamp = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(ctime / 1000))
+        path_spt = path.split("/")
+        if len(path_spt) == 7:
+            typ = "app"
+            name = path_spt[5].rpartition('_')[0]
+            moid = path_spt[5].rpartition('_')[2]
+        elif len(path_spt) == 5:
+            typ = "machine_room"
+            name = "默认机房"
+            moid = path_spt[3]
+        else:
+            # 路径格式错误
+            logger.warning("path format error: %s" % path)
+            return None
+
+        status = re.findall(cmp_pattern, data.decode('utf-8'))
+        if status[0] == 'started':
+            status = "online"
+        else:
+            status = "offline"
+        data_dict = dict(zip(['@timestamp', 'name', 'moid', 'type', 'status'], [timestamp, name, moid, typ, status]))
+        self.write_data(data_dict, self._data_path)
+
+    @staticmethod
+    def write_data(data, file):
+        """
+        write data to file throw the function save_json from source file common.globalfun
+        """
+        res, inf = save_json(data, file)
+        if res is not True:
+            logger.error("write data error: %s" % inf)
+
     @staticmethod
     def connection_listener(state):
         """
-        监控zk连接状态
-        :param state:
-        :return:
+        监控zk连接状态,记录zk状态变化
+        LOST: Register somewhere that the session was lost
+        SUSPENDED: Handle being disconnected from Zookeeper
+        CONNECTED: Handle being connected/reconnected to Zookeeper
         """
-        if state == "LOST":
-            # Register somewhere that the session was lost
-            print("lost")
-        elif state == "SUSPENDED":
-            # Handle being disconnected from Zookeeper
-            print("disconnect")
-        elif state == "CONNECTED":
-            # Handle being connected/reconnected to Zookeeper
-            print("connect")
-        else:
-            print("other")
-
-    @staticmethod
-    def handler(data, modify_time, zk_path):
-        """
-        处理节点的数据变化
-        :param modify_time:
-        :param zk_path:
-        :param data:
-        :return:
-        """
-        print("数据发生变化")
-        print("数据变更:", data)
-        print("变更时间:", modify_time)
-        print("数据路径:", zk_path)
-        # write_data(data, modify_time, zk_path)  # 暂时不打开
+        logger.info("zk connection changes: %s" % state)
 
 
 def file_monitor(path):
@@ -314,25 +290,28 @@ def file_monitor(path):
 def main():
     global zk_watcher, wt_json_path
 
-    if isinstance(zk_watcher, ZooKeeperWatcher) and zk_watcher.run_code == 1:
-        zk_watcher.stop()
+    try:
+        if isinstance(zk_watcher, ZooKeeperWatcher) and zk_watcher.run_code == 1:
+            zk_watcher.stop()
+    except NameError:
+        pass
+    except Exception as err:
+        logger.error("zk_watcher stop error: %s" % err)
 
     configuration = get_config()
     if configuration is None:
-        print('获取配置失败')
-        # 待处理
-        pass
+        logger.error('get configuration from config_file failed')
+        raise Exception("get configuration from config_file failed")
     zk_inf, data_path, wt_json_path = configuration
 
-    zk_inf_obj = AssembleZKInfo(wt_json_path, None)  # 组装业务路径未定，待修改
+    zk_inf_obj = AssembleZKInfo(wt_json_path)
     biz_inf = zk_inf_obj.get_zk_info()
 
     if biz_inf is None:
-        print('获取json配置失败')
-        # 待处理
-        pass
+        logger.error('get zookeeper information from json_file failed')
+        raise Exception("get zookeeper information from json_file failed")
 
-    zk_watcher = ZooKeeperWatcher(zk_inf)
+    zk_watcher = ZooKeeperWatcher(zk_inf, data_path)
     zk_watcher.start(biz_inf)
 
 
