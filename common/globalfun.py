@@ -3,7 +3,7 @@
 __author__ = 'wanglei_sxcpx@kedacom.com'
 
 import json
-import os
+# import os
 from common.setting import *
 
 
@@ -15,6 +15,7 @@ def save_json(data_dict, data_path):
     :return: 写入的结果，exception内容
     """
     index = '0'
+    msg = ''
     index_path = '%s.index' % data_path
     try:
         data_size = config.getint('dataWatcher', 'DataSize')
@@ -26,11 +27,13 @@ def save_json(data_dict, data_path):
         with open(index_path, 'w', encoding='utf-8')as f:
             f.write('1')
             index = '1'
+            msg = 'The data index was changed to %s' % index
     else:
         if not os.path.isfile(index_path):
             with open(index_path, 'w', encoding='utf-8')as f:
                 f.write('1')
                 index = '1'
+                msg = 'The data index was changed to %s' % index
         else:
             with open(index_path, 'r', encoding='utf-8')as f:
                 index = f.read()
@@ -42,9 +45,11 @@ def save_json(data_dict, data_path):
                 index = '%s' % (int(index) + 1)
                 if int(index) <= data_num:
                     f.write(index)
+                    msg = 'The data index was changed to %s' % index
                 else:
                     f.write('1')
                     index = '1'
+                    msg = 'The max file num is %s, so data index was changed to %s' % (data_num, index)
             write_data_path = os.path.abspath('%s.%s' % (data_path, index))
             with open(write_data_path, 'w', encoding='utf-8')as f:
                 f.write('')
@@ -53,6 +58,6 @@ def save_json(data_dict, data_path):
         try:
             json.dump(data_dict, f)
             f.write('\n')
-            return True, ''
+            return True, msg
         except Exception as e:
             return False, e
