@@ -12,7 +12,7 @@ import sys
 import json
 import time
 import logging
-import pyinotify
+# import pyinotify
 from common.setting import config, load_my_logging_cfg
 from common.globalfun import save_json
 
@@ -20,9 +20,8 @@ sys.path.append("/opt/luban/luban_c_python3/lib/python3.5/site-packages")
 from kazoo.client import KazooClient
 from kazoo.client import DataWatch
 
-
-exclude_business = ["java"]  # list of apps that needn't to cheek
-special_business = ["syslog-ng", "radar-server", "dms", "glusterfsd", "glusterfs", "zookeeper"]  # special apps list
+# list of apps that needn't to cheek
+exclude_business = ["java", "radar-server", "dms", "glusterfsd", "glusterfs", "zookeeper", "boardmanager"]
 cmp_pattern = re.compile("status = (\w+)")
 
 
@@ -100,28 +99,47 @@ class AssembleZKInfo:
             logger.error(err)
             return -1
         else:
-            return content['DeployInfo']
+            return content['DeployApp'], content['DeployRoom']
 
     def _make_zk_path(self):
         """
         assemble zookeeper path
         """
-        for app_info in self.apps_information:
+        apps, rooms = self.apps_information
+
+        for app_info in apps:
             domain_moid = app_info.get("Domain_moid")
             machineRoom_moid = app_info.get("MachineRoom_moid")
+            group_name = app_info.get("Group_name")
             group_moid = app_info.get("Group_moid")
             key = app_info.get("Key")
             moid = app_info.get("MOID")
 
-            # 机房信息处理待更新
+            if key in exclude_business:
+                # 特殊业务不监控
+                continue
 
-            if all([domain_moid, machineRoom_moid, group_moid, key, moid]):
+            if all([domain_moid, machineRoom_moid, group_name, group_moid, key, moid]):
                 key_moid = key + "_" + moid
-                zk_path = "/".join(["/service", domain_moid, machineRoom_moid, group_moid, key_moid, "status"])
-                self.apps_zk_path.setdefault(key, zk_path)
+                group_name_moid = group_name + '_' + group_moid
+                zk_path = "/".join(["/service", domain_moid, machineRoom_moid, group_name_moid, key_moid, "status"])
+                # self.apps_zk_path.setdefault(key, zk_path)
+                self.apps_zk_path.setdefault(zk_path, key)
             else:
-                logger.warning("make zk_path error: {}:{}:{}:{}:{}".format(key, domain_moid, machineRoom_moid,
-                                                                           group_moid, key, moid))
+                logger.warning("make zk_path error: {}:{}:{}:{}:{}:{}".format(domain_moid, machineRoom_moid, group_name,
+                                                                              group_moid, key, moid))
+
+        for room_info in rooms:
+            domain_moid = room_info.get("Domain_moid")
+            machineRoom_moid = room_info.get("MachineRoom_moid")
+            name = room_info.get("name")
+
+            if all([domain_moid, machineRoom_moid, name]):
+                zk_path = "/".join(["/service", domain_moid, machineRoom_moid, "status"])
+                # self.apps_zk_path.setdefault(name, zk_path)
+                self.apps_zk_path.setdefault(zk_path, name)
+            else:
+                logger.warning("make zk_path error: {}:{}:{}".format(name, domain_moid, machineRoom_moid))
 
     def _get_zk_info(self):
         """
@@ -134,7 +152,12 @@ class AssembleZKInfo:
             logger.error(err)
             return None
 
-        self.apps_information = self._get_json_info()
+        try:
+            self.apps_information = self._get_json_info()
+        except Exception as err:
+            logger.error(err)
+            return None
+
         if self.apps_information == -1:
             return None
         self._make_zk_path()
@@ -147,30 +170,30 @@ class AssembleZKInfo:
         return self._get_zk_info()
 
 
-class FileWatcherHandler(pyinotify.ProcessEvent):
-    """
-    handing config_json changes
-    """
-    def my_init(self):
-        self.stat = None
-
-    def process_IN_MODIFY(self, event):
-        # 处理修改一次文件触发多次报警
-        if os.stat(event.pathname)[8] != self.stat:
-            logger.info("json_file changed, Action: modify, file: %s " % event.pathname)
-            self.stat = os.stat(event.pathname)[8]
-            main()
-
-    def process_IN_MOVED_TO(self, event):
-        logger.info("json_file changed, Action: move_to, file: %s " % event.pathname)
-        self.stat = os.stat(event.pathname)[8]
-        main()
-
-    def process_IN_CREATE(self, event):
-        pass
-
-    def process_IN_DELETE(self, event):
-        pass
+# class FileWatcherHandler(pyinotify.ProcessEvent):
+#     """
+#     handing config_json changes
+#     """
+#     def my_init(self):
+#         self.stat = None
+#
+#     def process_IN_MODIFY(self, event):
+#         # 处理修改一次文件触发多次报警
+#         if os.stat(event.pathname)[8] != self.stat:
+#             logger.info("json_file changed, Action: modify, file: %s " % event.pathname)
+#             self.stat = os.stat(event.pathname)[8]
+#             main()
+#
+#     def process_IN_MOVED_TO(self, event):
+#         logger.info("json_file changed, Action: move_to, file: %s " % event.pathname)
+#         self.stat = os.stat(event.pathname)[8]
+#         main()
+#
+#     def process_IN_CREATE(self, event):
+#         pass
+#
+#     def process_IN_DELETE(self, event):
+#         pass
 
 
 class ZooKeeperWatcher:
@@ -185,8 +208,10 @@ class ZooKeeperWatcher:
         self._zk.add_listener(self.connection_listener)
         self.run_code = 0
         self._data_path = data_path
+        self._zk_paths = {}
 
     def start(self, zk_paths):
+        self._zk_paths = zk_paths
         try:
             assert isinstance(zk_paths, dict), "parameters must be dict"
         except AssertionError as err:
@@ -201,10 +226,10 @@ class ZooKeeperWatcher:
             else:
                 self.run_code = 1
                 break
-        self._watcher(zk_paths)
+        self._watcher(self._zk_paths)
 
     def _watcher(self, zk_paths):
-        for zk_path in zk_paths.values():
+        for zk_path in zk_paths.keys():
             @self._zk.DataWatch(zk_path)
             def my_dw(data, stat, event):
                 if event is None:
@@ -245,7 +270,8 @@ class ZooKeeperWatcher:
             moid = path_spt[5].rpartition('_')[2]
         elif len(path_spt) == 5:
             typ = "machine_room"
-            name = "默认机房"
+            # name = "默认机房"
+            name = self._zk_paths.get(path)
             moid = path_spt[3]
         else:
             # 路径格式错误
@@ -280,23 +306,23 @@ class ZooKeeperWatcher:
         logger.info("zk connection changes: %s" % state)
 
 
-def file_monitor(path):
-    wm = pyinotify.WatchManager()
-    notifier = pyinotify.Notifier(wm)
-    wm.watch_transient_file(path, pyinotify.ALL_EVENTS, FileWatcherHandler)
-    notifier.loop()
+# def file_monitor(path):
+#     wm = pyinotify.WatchManager()
+#     notifier = pyinotify.Notifier(wm)
+#     wm.watch_transient_file(path, pyinotify.ALL_EVENTS, FileWatcherHandler)
+#     notifier.loop()
 
 
 def main():
-    global zk_watcher, wt_json_path
-
-    try:
-        if isinstance(zk_watcher, ZooKeeperWatcher) and zk_watcher.run_code == 1:
-            zk_watcher.stop()
-    except NameError:
-        pass
-    except Exception as err:
-        logger.error("zk_watcher stop error: %s" % err)
+    # global zk_watcher, wt_json_path
+    #
+    # try:
+    #     if isinstance(zk_watcher, ZooKeeperWatcher) and zk_watcher.run_code == 1:
+    #         zk_watcher.stop()
+    # except NameError:
+    #     pass
+    # except Exception as err:
+    #     logger.error("zk_watcher stop error: %s" % err)
 
     configuration = get_config()
     if configuration is None:
@@ -317,4 +343,6 @@ def main():
 
 if __name__ == '__main__':
     main()
-    file_monitor(wt_json_path)
+    while True:
+        time.sleep(999999)
+    # file_monitor(wt_json_path)
