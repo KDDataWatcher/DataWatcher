@@ -266,11 +266,13 @@ class ZooKeeperWatcher:
         path_spt = path.split("/")
         if len(path_spt) == 7:
             typ = "app"
+            domain_moid = path_spt[2]
             name = path_spt[5].rpartition('_')[0]
             moid = path_spt[5].rpartition('_')[2]
         elif len(path_spt) == 5:
             typ = "machine_room"
             # name = "默认机房"
+            domain_moid = path_spt[2]
             name = self._zk_paths.get(path)
             moid = path_spt[3]
         else:
@@ -283,7 +285,8 @@ class ZooKeeperWatcher:
             status = "online"
         else:
             status = "offline"
-        data_dict = dict(zip(['@timestamp', 'name', 'moid', 'type', 'status'], [timestamp, name, moid, typ, status]))
+        data_dict = dict(zip(['@timestamp', 'domain_moid', 'name', 'moid', 'type', 'status'],
+                             [timestamp, domain_moid, name, moid, typ, status]))
         self.write_data(data_dict, self._data_path)
 
     @staticmethod
