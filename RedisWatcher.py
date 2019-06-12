@@ -109,7 +109,9 @@ class RedisWatcher(object):
         while True:
             try:
                 # self._logger.debug('队列长度：%s, 线程数量：%s' % (len(self._data_queue), threading.enumerate()))
+                self._logger.info('1')
                 data_dict = self._data_queue.popleft()
+                self._logger.info('2')
                 if isinstance(data_dict, dict):
                     flag, msg = save_json(data_dict, self._data_path)
                     if not flag:

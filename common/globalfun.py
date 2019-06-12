@@ -2,62 +2,25 @@
 # coding: utf-8
 __author__ = 'wanglei_sxcpx@kedacom.com'
 
-import json
-# import os
+import datetime
 from common.setting import *
+import json
 
 
-def save_json(data_dict, data_path):
+def save_json(data_dict, sys_logger):
     """
-    将订阅获取到的数据，转为json后写入文件
+    将订阅获取到的数据，写入syslog
     :param data_dict: 要转换为json格式的数据字典
-    :param data_path: json串写入的文件路径 如：/opt/data/region/platformData/redisWatcher/redis.data
-    :return: 写入的结果，exception内容
     """
-    index = '0'
-    msg = ''
-    index_path = '%s.index' % data_path
     try:
-        data_size = config.getint('dataWatcher', 'DataSize')
-        data_num = config.getint('dataWatcher', 'DataNum')
-    except Exception as e:
-        return False, e
-    if not os.path.isdir(os.path.dirname(os.path.abspath(data_path))):
-        os.makedirs(os.path.dirname(os.path.abspath(data_path)))
-        with open(index_path, 'w', encoding='utf-8')as f:
-            f.write('1')
-            index = '1'
-            msg = 'The data index was changed to %s' % index
-    else:
-        if not os.path.isfile(index_path):
-            with open(index_path, 'w', encoding='utf-8')as f:
-                f.write('1')
-                index = '1'
-                msg = 'The data index was changed to %s' % index
-        else:
-            with open(index_path, 'r', encoding='utf-8')as f:
-                index = f.read()
+        sys_logger.info(json.dumps(data_dict))
+    except:
+        pass
 
-    write_data_path = os.path.abspath('%s.%s' % (data_path, index))
-    if os.path.exists(os.path.abspath(write_data_path)):
-        if os.path.getsize(os.path.abspath(write_data_path)) > (data_size * 1024 * 1024):
-            with open(index_path, 'w', encoding='utf-8')as f:
-                index = '%s' % (int(index) + 1)
-                if int(index) <= data_num:
-                    f.write(index)
-                    msg = 'The data index was changed to %s' % index
-                else:
-                    f.write('1')
-                    index = '1'
-                    msg = 'The max file num is %s, so data index was changed to %s' % (data_num, index)
-            write_data_path = os.path.abspath('%s.%s' % (data_path, index))
-            with open(write_data_path, 'w', encoding='utf-8')as f:
-                f.write('')
 
-    with open(write_data_path, 'a+', encoding='utf-8')as f:
-        try:
-            json.dump(data_dict, f)
-            f.write('\n')
-            return True, msg
-        except Exception as e:
-            return False, e
+def format_timestamp(time):
+    d = datetime.datetime.fromtimestamp(time)
+    utc_format = "%Y-%m-%dT%H:%M:%S.%fZ"
+    timestamp = d.strftime(utc_format)
+
+    return timestamp
